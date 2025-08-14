@@ -319,6 +319,11 @@
         function buyTaxi() {
             if (money < TAXI_COST) return;
             money -= TAXI_COST;
+            if (buildings.length === 0) {
+                logMessage("Não há locais para o táxi começar. Mova o mapa.", "error");
+                money += TAXI_COST; // Devolve o dinheiro
+                return;
+            }
             const startPos = buildings[Math.floor(Math.random() * buildings.length)];
             const taxiMarker = L.marker([startPos.lat, startPos.lng], { icon: taxiIcon, zIndexOffset: 1000 }).addTo(map);
             taxiMarker.bindPopup(`<b>Táxi ${taxis.length + 1}</b><br>Status: Ocioso`);
@@ -345,7 +350,7 @@
             let closest = null, minDistance = Infinity;
             routes.forEach(route => {
                 route.stops.forEach((stop) => {
-                    const distance = L.latLng(position).distanceTo(L.latLng(stop));
+                    const distance = L.latLng(position.lat, position.lng).distanceTo(L.latLng(stop.lat, stop.lng));
                     if (distance < minDistance) {
                         minDistance = distance;
                         closest = { route, stop, distance };
@@ -364,31 +369,47 @@
             });
         }
 
+        // CORREÇÃO: Revertido para a versão que usa um controle invisível, que é mais estável.
         function getRoutePath(start, end, callback) {
-            // FIX: Use the correct factory function L.routing.osrmv1 (lowercase 'r')
-            const router = L.routing.osrmv1({
-                serviceUrl: 'https://router.project-osrm.org/route/v1',
-                profile: 'driving',
+            const control = L.routing.control({
+                waypoints: [
+                    L.latLng(start.lat, start.lng),
+                    L.latLng(end.lat, end.lng)
+                ],
+                router: L.routing.osrmv1({
+                    serviceUrl: 'https://router.project-osrm.org/route/v1',
+                    profile: 'driving',
+                }),
+                createMarker: () => null,
+                routeWhileDragging: false,
+                addWaypoints: false,
+                // A linha abaixo é a que causa o zoom, mas remover o controle depois resolve.
+                // fitSelectedRoutes: true, 
             });
 
-            router.route([L.latLng(start.lat, start.lng), L.latLng(end.lat, end.lng)], (err, routes) => {
-                if (err || !routes || routes.length === 0) {
-                    console.error("Erro de roteamento:", err);
-                    // Provide an empty path to prevent crashes on routing failure
+            const onRouteFound = function(e) {
+                const route = e.routes[0];
+                if (route) {
+                    const pathData = {
+                        coordinates: route.coordinates,
+                        instructions: route.instructions,
+                        summary: route.summary
+                    };
+                    callback(pathData);
+                } else {
                     callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
-                    return;
                 }
-                const route = routes[0];
-                const pathData = {
-                    coordinates: route.coordinates,
-                    instructions: route.instructions,
-                    summary: route.summary
-                };
-                callback(pathData);
-            }, null, {
-                steps: true,
-                annotations: ['speed', 'duration', 'distance']
-            });
+                // Remove o controle do mapa para evitar que ele interfira futuramente
+                map.removeControl(control);
+            };
+            
+            const onRoutingError = function(e) {
+                console.error("Routing error:", e.error);
+                callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
+                map.removeControl(control);
+            };
+
+            control.on('routesfound', onRouteFound).on('routingerror', onRoutingError).addTo(map);
         }
 
         function updateVehicles(vehicleList, deltaTime) {
@@ -409,8 +430,18 @@
 
                 if (!vehicle.path || !vehicle.path.coordinates || vehicle.path.coordinates.length === 0) return;
 
-                const currentLeg = vehicle.path.instructions.find(instr => vehicle.distanceTraveled < instr.distance);
-                const speedKmh = currentLeg ? (currentLeg.speed || 30) : 30; // km/h, com fallback para 30
+                // Encontra a instrução atual para obter o limite de velocidade
+                let currentInstruction = null;
+                let traveledDistanceForInstruction = 0;
+                for(const instruction of vehicle.path.instructions) {
+                    if (vehicle.distanceTraveled < traveledDistanceForInstruction + instruction.distance) {
+                        currentInstruction = instruction;
+                        break;
+                    }
+                    traveledDistanceForInstruction += instruction.distance;
+                }
+
+                const speedKmh = currentInstruction ? (currentInstruction.speed || 30) : 30; // km/h
                 const speedMps = speedKmh / 3.6; // metros por segundo
                 
                 vehicle.distanceTraveled += speedMps * deltaTime;
@@ -451,7 +482,7 @@
             } else if (vehicle.type === 'taxi') {
                 if (vehicle.status === 'pickup') {
                     vehicle.status = 'dropoff';
-                    vehicle.marker.setLatLng(vehicle.passenger.origin);
+                    vehicle.marker.setLatLng([vehicle.passenger.origin.lat, vehicle.passenger.origin.lng]);
                     getRoutePath(vehicle.passenger.origin, vehicle.passenger.destination, pathData => {
                         vehicle.path = pathData; vehicle.distanceTraveled = 0;
                     });
@@ -478,7 +509,7 @@
             bus.passengers.forEach(p => {
                 let bestStopForDest = null, minDistance = Infinity;
                 route.stops.forEach(s => {
-                    const d = L.latLng(p.destination).distanceTo(L.latLng(s));
+                    const d = L.latLng(p.destination.lat, p.destination.lng).distanceTo(L.latLng(s.lat, s.lng));
                     if (d < minDistance) { minDistance = d; bestStopForDest = s; }
                 });
                 if (bestStopForDest === stop) passengersToDrop.push(p);
@@ -497,7 +528,7 @@
                 logMessage(`${boarded.length} passageiros embarcaram.`, 'info');
             }
             
-            bus.marker.setPopupContent(`<b>Ônibus Rota ${bus.id + 1}</b><br>Passageiros: ${bus.passengers.length}/${bus.capacity}`);
+            bus.marker.setPopupContent(`<b>Ônibus Rota ${bus.routeId + 1}</b><br>Passageiros: ${bus.passengers.length}/${bus.capacity}`);
             updateUI();
         }
 
