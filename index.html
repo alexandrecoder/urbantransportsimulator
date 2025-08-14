@@ -104,11 +104,42 @@
         const cityInput = document.getElementById('city-input'), changeCityBtn = document.getElementById('change-city-btn');
         const searchIcon = document.getElementById('search-icon'), loadingIcon = document.getElementById('loading-icon');
 
-        const houseIcon = L.icon({ iconUrl: 'https://img.icons8.com/plasticine/100/000000/cottage.png', iconSize: [35, 35] });
-        const commercialIcon = L.icon({ iconUrl: 'https://img.icons8.com/plasticine/100/000000/company.png', iconSize: [40, 40] });
-        const busStopIcon = L.icon({ iconUrl: 'https://img.icons8.com/fluency/48/bus-stop.png', iconSize: [30, 30] });
-        const busIcon = L.icon({ iconUrl: 'https://img.icons8.com/emoji/48/bus-emoji.png', iconSize: [32, 32] });
-        const taxiIcon = L.icon({ iconUrl: 'https://img.icons8.com/officel/48/taxi.png', iconSize: [32, 32] });
+        // --- ÍCONES DE IMAGEM (VERSÃO MELHORADA) ---
+        const houseIcon = L.icon({
+            iconUrl: 'https://img.icons8.com/?size=100&id=tNcJ7GGjHsUq&format=png&color=000000',
+            iconSize: [35, 35],
+            iconAnchor: [17, 35],
+            popupAnchor: [0, -35]
+        });
+
+        const commercialIcon = L.icon({
+            iconUrl: 'https://img.icons8.com/?size=100&id=77118&format=png&color=000000',
+            iconSize: [40, 40],
+            iconAnchor: [20, 40],
+            popupAnchor: [0, -40]
+        });
+
+        const busStopIcon = L.icon({
+            iconUrl: 'https://img.icons8.com/?size=100&id=AcKkhlEH3xH3&format=png&color=000000',
+            iconSize: [40, 40],
+            iconAnchor: [20, 40],
+            popupAnchor: [0, -40]
+        });
+
+        const busIcon = L.icon({
+            iconUrl: 'https://img.icons8.com/emoji/48/bus-emoji.png',
+            iconSize: [38, 38],
+            iconAnchor: [19, 19],
+            popupAnchor: [0, -19]
+        });
+
+        const taxiIcon = L.icon({
+            iconUrl: 'https://img.icons8.com/?size=100&id=ZLLMblk2fUMp&format=png&color=000000',
+            iconSize: [38, 38],
+            iconAnchor: [19, 19],
+            popupAnchor: [0, -19]
+        });
+        // --- FIM DOS ÍCONES ---
 
         function init() {
             map = L.map('map', { zoomControl: false }).setView([-23.5505, -46.6333], 13);
@@ -144,8 +175,14 @@
             routes = []; buses = []; taxis = []; buildings = []; passengers = []; tempStops = [];
             nextRouteId = 0;
             
-            map.eachLayer(layer => { if (!!layer.toGeoJSON) map.removeLayer(layer); });
+            // Limpa todas as camadas, exceto o mapa base
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                    map.removeLayer(layer);
+                }
+            });
             buildingMarkers.clearLayers();
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map); // Readiciona o tile layer
             
             map.setView(center, zoom);
             fetchMapData();
@@ -339,10 +376,10 @@
             if (origin === destination) return;
             const passenger = { id: Date.now(), origin, destination, status: 'waiting' };
             const nearestStartStopInfo = findNearestStop(passenger.origin);
-            if (nearestStartStopInfo && nearestStartStopInfo.distance < 1000) {
+            if (nearestStartStopInfo && nearestStartStopInfo.distance < 1000) { // 1km de distância máxima para ir a uma parada
                 nearestStartStopInfo.stop.passengers.push(passenger);
             } else {
-                passengers.push(passenger);
+                passengers.push(passenger); // Passageiros que pedirão táxi
             }
         }
 
@@ -370,10 +407,10 @@
         }
 
         function getRoutePath(start, end, callback) {
-            // Defensive check
+            // Checagem defensiva para garantir que os pontos de início e fim são válidos
             if (!start || typeof start.lat === 'undefined' || typeof start.lng === 'undefined' ||
                 !end || typeof end.lat === 'undefined' || typeof end.lng === 'undefined') {
-                console.error("Invalid start/end points for routing:", start, end);
+                console.error("Pontos de início/fim inválidos para roteamento:", start, end);
                 callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
                 return;
             }
@@ -387,7 +424,7 @@
                     serviceUrl: 'https://router.project-osrm.org/route/v1',
                     profile: 'driving',
                 }),
-                createMarker: () => null,
+                createMarker: () => null, // Não cria marcadores de waypoint visíveis
                 routeWhileDragging: false,
                 addWaypoints: false,
             });
@@ -404,15 +441,14 @@
                 } else {
                     callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
                 }
-                // A remoção do controle é a causa do erro, então vamos evitar isso.
-                // O controle invisível permanecerá no mapa, mas não deve afetar o jogo.
-                // map.removeControl(control);
+                 // O controle invisível é adicionado ao mapa e não precisa ser removido
+                 // para evitar erros em chamadas subsequentes.
             };
             
             const onRoutingError = function(e) {
-                console.error("Routing error:", e.error);
+                console.error("Erro de roteamento:", e.error);
+                // Retorna um caminho vazio em caso de erro
                 callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
-                // map.removeControl(control);
             };
 
             control.on('routesfound', onRouteFound).on('routingerror', onRoutingError).addTo(map);
@@ -420,33 +456,26 @@
 
         function updateVehicles(vehicleList, deltaTime) {
             vehicleList.forEach(vehicle => {
+                // Lógica para Táxi Ocioso procurar passageiro
                 if (vehicle.type === 'taxi' && vehicle.status === 'idle') {
                     const waitingForTaxi = passengers.filter(p => p.status === 'waiting');
                     if (waitingForTaxi.length > 0) {
-                        const passenger = waitingForTaxi.shift();
+                        const passenger = waitingForTaxi.shift(); // Pega o primeiro passageiro da fila
                         vehicle.status = 'pickup';
                         vehicle.passenger = passenger;
                         getRoutePath(vehicle.marker.getLatLng(), passenger.origin, pathData => {
                             vehicle.path = pathData; vehicle.distanceTraveled = 0;
                         });
-                        vehicle.marker.setPopupContent(`<b>Táxi ${vehicle.id + 1}</b><br>A caminho`);
+                        vehicle.marker.setPopupContent(`<b>Táxi ${vehicle.id + 1}</b><br>A caminho do passageiro`);
                     }
-                    return;
+                    return; // Para o loop deste veículo se estiver ocioso
                 }
 
+                // Se o veículo não tem um caminho, não faz nada
                 if (!vehicle.path || !vehicle.path.coordinates || vehicle.path.coordinates.length === 0) return;
 
-                let currentInstruction = null;
-                let traveledDistanceForInstruction = 0;
-                for(const instruction of vehicle.path.instructions) {
-                    if (vehicle.distanceTraveled < traveledDistanceForInstruction + instruction.distance) {
-                        currentInstruction = instruction;
-                        break;
-                    }
-                    traveledDistanceForInstruction += instruction.distance;
-                }
-
-                const speedKmh = currentInstruction ? (currentInstruction.speed || 30) : 30;
+                // Aumenta a velocidade para uma jogabilidade mais dinâmica
+                const speedKmh = 80; 
                 const speedMps = speedKmh / 3.6;
                 
                 vehicle.distanceTraveled += speedMps * deltaTime;
@@ -466,6 +495,7 @@
                     traveled += segmentDistance;
                 }
 
+                // Verifica se o veículo chegou ao destino
                 if (vehicle.distanceTraveled >= vehicle.path.summary.totalDistance) {
                     handleVehicleArrival(vehicle);
                 }
@@ -476,14 +506,22 @@
             if (vehicle.type === 'bus') {
                 const route = routes.find(r => r.id === vehicle.routeId);
                 if (!route) return;
-                vehicle.currentStopIndex = (vehicle.currentStopIndex + 1) % route.stops.length;
-                handleBusAtStop(vehicle);
+                
+                // Garante que o ônibus pare exatamente na parada
+                const currentStopForArrival = route.stops[vehicle.currentStopIndex];
                 const nextStopIndex = (vehicle.currentStopIndex + 1) % route.stops.length;
-                const currentStop = route.stops[vehicle.currentStopIndex];
+                vehicle.marker.setLatLng([currentStopForArrival.lat, currentStopForArrival.lng]);
+
+                handleBusAtStop(vehicle); // Processa passageiros
+                
+                // Define o novo destino
+                vehicle.currentStopIndex = nextStopIndex;
                 const nextStop = route.stops[nextStopIndex];
-                getRoutePath(currentStop, nextStop, pathData => {
+                
+                getRoutePath(currentStopForArrival, nextStop, pathData => {
                     vehicle.path = pathData; vehicle.distanceTraveled = 0;
                 });
+
             } else if (vehicle.type === 'taxi') {
                 if (vehicle.status === 'pickup') {
                     vehicle.status = 'dropoff';
@@ -510,6 +548,7 @@
             if (!route) return;
             const stop = route.stops[bus.currentStopIndex];
             
+            // Desembarque de passageiros
             const passengersToDrop = [];
             bus.passengers.forEach(p => {
                 let bestStopForDest = null, minDistance = Infinity;
@@ -526,6 +565,7 @@
                 logMessage(`${passengersToDrop.length} passageiros desembarcaram. +R$${passengersToDrop.length * BUS_TICKET_PRICE}`, 'success');
             }
 
+            // Embarque de passageiros
             const space = bus.capacity - bus.passengers.length;
             const boarded = stop.passengers.splice(0, space);
             if (boarded.length > 0) {
