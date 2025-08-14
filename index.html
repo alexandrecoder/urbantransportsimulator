@@ -365,7 +365,8 @@
         }
 
         function getRoutePath(start, end, callback) {
-            const router = L.Routing.osrmv1({
+            // FIX: Use the correct factory function L.routing.osrmv1 (lowercase 'r')
+            const router = L.routing.osrmv1({
                 serviceUrl: 'https://router.project-osrm.org/route/v1',
                 profile: 'driving',
             });
@@ -373,6 +374,8 @@
             router.route([L.latLng(start.lat, start.lng), L.latLng(end.lat, end.lng)], (err, routes) => {
                 if (err || !routes || routes.length === 0) {
                     console.error("Erro de roteamento:", err);
+                    // Provide an empty path to prevent crashes on routing failure
+                    callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
                     return;
                 }
                 const route = routes[0];
