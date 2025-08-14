@@ -369,8 +369,15 @@
             });
         }
 
-        // CORREÇÃO: Revertido para a versão que usa um controle invisível, que é mais estável.
         function getRoutePath(start, end, callback) {
+            // Defensive check
+            if (!start || typeof start.lat === 'undefined' || typeof start.lng === 'undefined' ||
+                !end || typeof end.lat === 'undefined' || typeof end.lng === 'undefined') {
+                console.error("Invalid start/end points for routing:", start, end);
+                callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
+                return;
+            }
+
             const control = L.routing.control({
                 waypoints: [
                     L.latLng(start.lat, start.lng),
@@ -383,8 +390,6 @@
                 createMarker: () => null,
                 routeWhileDragging: false,
                 addWaypoints: false,
-                // A linha abaixo é a que causa o zoom, mas remover o controle depois resolve.
-                // fitSelectedRoutes: true, 
             });
 
             const onRouteFound = function(e) {
@@ -399,14 +404,15 @@
                 } else {
                     callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
                 }
-                // Remove o controle do mapa para evitar que ele interfira futuramente
-                map.removeControl(control);
+                // A remoção do controle é a causa do erro, então vamos evitar isso.
+                // O controle invisível permanecerá no mapa, mas não deve afetar o jogo.
+                // map.removeControl(control);
             };
             
             const onRoutingError = function(e) {
                 console.error("Routing error:", e.error);
                 callback({ coordinates: [], instructions: [], summary: { totalDistance: 0, totalTime: 0 } });
-                map.removeControl(control);
+                // map.removeControl(control);
             };
 
             control.on('routesfound', onRouteFound).on('routingerror', onRoutingError).addTo(map);
@@ -430,7 +436,6 @@
 
                 if (!vehicle.path || !vehicle.path.coordinates || vehicle.path.coordinates.length === 0) return;
 
-                // Encontra a instrução atual para obter o limite de velocidade
                 let currentInstruction = null;
                 let traveledDistanceForInstruction = 0;
                 for(const instruction of vehicle.path.instructions) {
@@ -441,8 +446,8 @@
                     traveledDistanceForInstruction += instruction.distance;
                 }
 
-                const speedKmh = currentInstruction ? (currentInstruction.speed || 30) : 30; // km/h
-                const speedMps = speedKmh / 3.6; // metros por segundo
+                const speedKmh = currentInstruction ? (currentInstruction.speed || 30) : 30;
+                const speedMps = speedKmh / 3.6;
                 
                 vehicle.distanceTraveled += speedMps * deltaTime;
                 
